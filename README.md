@@ -1,5 +1,7 @@
 # NutriNacho
 
+[![CI](https://github.com/Ignacio-Durich/NutriNacho/actions/workflows/ci.yml/badge.svg)](https://github.com/Ignacio-Durich/NutriNacho/actions/workflows/ci.yml)
+
 A private nutrition tracker I built for myself and my mom. Send a photo or a short description of a meal to a **Telegram bot**; **Gemini** estimates calories and macros, the result is stored in **Supabase**, and a **web dashboard** shows daily progress, trends and AI-written analysis.
 
 It runs 24/7 on a small cloud VM and is used every day by two real people, each with their own goals.
@@ -110,9 +112,9 @@ Needs Node.js only, no dependencies. The suite runs the dashboard in a small DOM
 
 ## Known limitations and roadmap
 
-- **Tests:** the suite covers the dashboard only (110 tests, all passing, also when the clock is faked to each hour of the day and in two time zones). The Python bot has no automated tests yet.
+- **Tests:** 110 dashboard tests (`node tests/e2e_runner.js`) and 76 bot tests (`pytest`, offline, no keys needed). GitHub Actions runs both, plus a scan for committed secrets, on every push and pull request.
 - The VM runs Python 3.9, which Google libraries now flag as end-of-life. Upgrade to 3.10+.
-- Deployment is manual (upload file, restart in `tmux`). A `git pull` or CI-based deploy would be better.
+- Deployment is manual (upload file, restart in `tmux`). A `git pull` or CI-based deploy would be better (CI currently only runs the tests).
 - The bot and dashboard text is in Spanish. Internationalization is not done.
 - No authentication on the dashboard (see above).
 - Calorie and macro values are model estimates, not nutritional advice.
