@@ -155,3 +155,51 @@ def test_consumo_historico_averages_per_logged_day(nb, sb):
 def test_consumo_historico_empty_returns_zeros(nb, sb):
     sb.set("comidas", [])
     assert nb.obtener_consumo_historico(NACHO, 7) == (0, 0, 0, 0, 0)
+
+
+# --- saved foods: the shortcut must only fire for a message that is just that food -------
+GRANOLA = {"nombre": "Granola", "porcion": "40 g", "calorias": 180, "proteina_g": 4, "carbohidratos_g": 28, "grasas_g": 6}
+
+
+@pytest.mark.parametrize("texto", [
+    "yogurt 150 g con 50 gramos de granola y una banana",
+    "150 gramos yogurt con 50 gramos de granola y una banana",
+    "quiero granola con banana",
+    "50 gramos de granola",
+    "gran",
+    "granola y banana",
+])
+def test_base_local_ignores_messages_with_more_than_one_food_or_quantities(nb, sb, texto):
+    sb.set("alimentos_frecuentes", [GRANOLA])
+    assert nb.buscar_en_base_local(texto) is None
+
+
+@pytest.mark.parametrize("texto, comida, kcal", [
+    ("granola", "Granola", 180),
+    ("  GRANOLA ", "Granola", 180),
+    ("2 granola", "2x Granola", 360),
+    ("2x granola", "2x Granola", 360),
+    ("1,5 granola", "1.5x Granola", 270),
+])
+def test_base_local_accepts_only_the_food_with_an_optional_portion_count(nb, sb, texto, comida, kcal):
+    sb.set("alimentos_frecuentes", [GRANOLA])
+    out = nb.buscar_en_base_local(texto)
+    assert out["comida"] == comida and out["calorias"] == kcal
+
+
+def test_base_local_ignores_accents_and_simple_plurals(nb, sb):
+    sb.set("alimentos_frecuentes", [{**GRANOLA, "nombre": "Plátano"}])
+    assert nb.buscar_en_base_local("2 platanos")["comida"] == "2x Plátano"
+
+
+def test_knowledge_base_prompt_asks_to_scale_by_the_stated_quantity(nb, sb):
+    sb.set("alimentos_frecuentes", [GRANOLA])
+    reglas = nb.obtener_base_conocimiento()
+    assert "- Granola (40 g): 180 kcal, 4g proteina, 28g carbohidratos, 6g grasas." in reglas
+    assert "escalá" in reglas and "proporcionalmente" in reglas
+    assert "obligatoriamente" not in reglas
+
+
+def test_knowledge_base_prompt_is_empty_without_saved_foods(nb, sb):
+    sb.set("alimentos_frecuentes", [])
+    assert nb.obtener_base_conocimiento() == ""
