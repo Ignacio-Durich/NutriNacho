@@ -44,3 +44,12 @@ def test_photo_from_unknown_user_is_denied(nb, bot):
 def test_importing_the_module_does_not_start_polling(nb):
     # The module was imported by the fixtures; main() is only called when run as a script.
     assert callable(nb.main)
+
+
+def test_main_starts_polling_without_messaging_anyone(nb, bot):
+    # Restarting the bot (deploys, VM reboots) must not send anything to the users.
+    bot.infinity_polling = MagicMock()
+    nb.main()
+    bot.infinity_polling.assert_called_once()
+    bot.send_message.assert_not_called()
+    bot.reply_to.assert_not_called()

@@ -689,21 +689,7 @@ def paso_grasas(message):
     except Exception as e:
         bot.reply_to(message, f"Error al guardar la meta en la BD: {e}")
 
-mensaje_actualizacion = """
-🚀 **¡NutriBot Actualizado! (Versión 4.1 Multiusuario)** 🚀
-
-¡Hola! Se instalaron nuevas mejoras en el sistema:
-
-1️⃣ **Metas Dinámicas Propias**: Ahora cada usuario puede actualizar sus objetivos usando el comando /metas. El historial de metas se guarda para que los análisis futuros sigan siendo exactos.
-2️⃣ **Nutricionista Virtual**: Con el comando /consulta pueden hacer preguntas abiertas (ej: *"¿Qué ceno si me faltan 50g de proteína?"*). El bot mira su historial para responder.
-3️⃣ **Análisis Flexible**: Al nutricionista le pueden pedir rangos de tiempo (ej: *"cómo vengo este último mes"*) y lo analiza.
-4️⃣ **Sistema Anti-Caídas**: Se agregó una cadena inteligente de 5 modelos de IA distintos (Gemini 3.8, 3.7, 3.6, etc.). Si uno se satura, pasa automáticamente al siguiente para que nunca se queden sin respuesta.
-"""
 def main():
-    for u_id in USUARIOS_PERMITIDOS.keys():
-        try: bot.send_message(u_id, mensaje_actualizacion, parse_mode="Markdown")
-        except: pass
-
     print(f"Bot V4.1 MULTIUSUARIO corriendo con: {' -> '.join(MODELOS_FALLBACK)} 🚀")
     bot.infinity_polling(timeout=60, long_polling_timeout=30)
 
