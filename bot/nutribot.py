@@ -660,9 +660,13 @@ mensaje_actualizacion = """
 3️⃣ **Análisis Flexible**: Al nutricionista le pueden pedir rangos de tiempo (ej: *"cómo vengo este último mes"*) y lo analiza.
 4️⃣ **Sistema Anti-Caídas**: Se agregó una cadena inteligente de 5 modelos de IA distintos (Gemini 3.8, 3.7, 3.6, etc.). Si uno se satura, pasa automáticamente al siguiente para que nunca se queden sin respuesta.
 """
-for u_id in USUARIOS_PERMITIDOS.keys():
-    try: bot.send_message(u_id, mensaje_actualizacion, parse_mode="Markdown")
-    except: pass
+def main():
+    for u_id in USUARIOS_PERMITIDOS.keys():
+        try: bot.send_message(u_id, mensaje_actualizacion, parse_mode="Markdown")
+        except: pass
 
-print(f"Bot V4.1 MULTIUSUARIO corriendo con: {' -> '.join(MODELOS_FALLBACK)} 🚀")
-bot.infinity_polling(timeout=60, long_polling_timeout=30)
+    print(f"Bot V4.1 MULTIUSUARIO corriendo con: {' -> '.join(MODELOS_FALLBACK)} 🚀")
+    bot.infinity_polling(timeout=60, long_polling_timeout=30)
+
+if __name__ == "__main__":
+    main()
