@@ -76,16 +76,40 @@ def es_error_limite(error):
     error_str = str(error).lower()
     return any(palabra in error_str for palabra in ['rate limit', 'quota', 'resource exhausted', '429', 'too many requests', 'overloaded', '503', 'unavailable', 'high demand'])
 
+# Modelos que acaban de devolver error de cuota o sobrecarga se saltean un rato,
+# para no gastar un pedido fallido (y esperar) en cada mensaje.
+modelos_en_espera = {}  # nombre del modelo -> instante (monotonic) hasta el que se saltea
+ESPERA_LIMITE = 60        # segundos, si el error no dice cuánto esperar
+ESPERA_CUOTA_DIARIA = 3600  # segundos, si la cuota agotada es la diaria
+
+def _ahora():
+    return time.monotonic()
+
+def espera_para_error(error):
+    mensaje = str(error)
+    reintento = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)s", mensaje)
+    if reintento:
+        return min(max(float(reintento.group(1)), 5), ESPERA_CUOTA_DIARIA)
+    if 'perday' in mensaje.lower():
+        return ESPERA_CUOTA_DIARIA
+    return ESPERA_LIMITE
+
 def llamar_gemini(prompt_o_contenido, intentos_por_modelo=2, espera_base=2):
     ultimo_error = None
-    for nombre_modelo in MODELOS_FALLBACK:
+    ahora = _ahora()
+    disponibles = [m for m in MODELOS_FALLBACK if modelos_en_espera.get(m, 0) <= ahora]
+    # Si todos están en pausa, se intenta igual con la cadena completa
+    for nombre_modelo in (disponibles or MODELOS_FALLBACK):
         espera = espera_base
         for intento in range(1, intentos_por_modelo + 1):
             try:
-                return gemini.models.generate_content(model=nombre_modelo, contents=prompt_o_contenido).text
+                texto = gemini.models.generate_content(model=nombre_modelo, contents=prompt_o_contenido).text
+                modelos_en_espera.pop(nombre_modelo, None)
+                return texto
             except Exception as e:
                 ultimo_error = e
                 if es_error_limite(e):
+                    modelos_en_espera[nombre_modelo] = _ahora() + espera_para_error(e)
                     break
                 elif isinstance(e, (ConnectionError, TimeoutError)) or any(p in str(e).lower() for p in ['connection', 'timeout', 'reset']):
                     if intento < intentos_por_modelo:

@@ -91,3 +91,19 @@ def fake_gemini(nb, monkeypatch):
         monkeypatch.setattr(nb, "gemini", fake)
         return fake
     return install
+
+
+@pytest.fixture(autouse=True)
+def reset_model_cooldowns(nb):
+    nb.modelos_en_espera.clear()
+    yield
+    nb.modelos_en_espera.clear()
+
+
+@pytest.fixture
+def clock(nb, monkeypatch):
+    """Controllable replacement for the bot's clock."""
+    state = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(nb, "_ahora", lambda: state.now)
+    state.advance = lambda seconds: setattr(state, "now", state.now + seconds)
+    return state
