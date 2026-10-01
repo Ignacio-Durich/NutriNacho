@@ -6,23 +6,11 @@ bot/users.json
 dashboard/config.js
 
 # Python
+.venv/
 env/
 venv/
-.venv/
 __pycache__/
 *.pyc
 
 # OS / editor
 .DS_Store
-
-# Local-only: previous bot version, one-off patch scripts, AI-agent working files
-bot.py
-NutriBot_Connie_Nacho.py
-fix.py
-patch2.py
-test.py
-test2.py
-refactor_bot.py
-refactor_connie_nacho.py
-.agents/
-TEST_READY.md
