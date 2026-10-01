@@ -9,6 +9,7 @@ import io
 import json
 import time
 import re
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -127,7 +128,12 @@ def obtener_base_conocimiento():
         datos = respuesta.data
         if not datos: return ""
             
-        reglas = "REGLA ESTRICTA: Si el usuario menciona o la imagen contiene alguno de los siguientes alimentos, DEBES usar obligatoriamente estos valores:\n"
+        reglas = ("ALIMENTOS GUARDADOS DEL USUARIO: cada línea da los valores de la porción indicada entre paréntesis. "
+                  "Si el usuario menciona o la imagen contiene alguno de estos alimentos, usá esos valores como referencia exacta para ESA porción. "
+                  "Si indica otra cantidad (otros gramos, varias unidades), escalá los valores proporcionalmente a la cantidad indicada "
+                  "(ej: porción de 40 g y el usuario comió 50 g: multiplicá por 1,25). "
+                  "Los demás alimentos del mensaje que no estén en la lista, estimalos normalmente. "
+                  "Devolvé UN solo resultado con la suma de todos los alimentos de la comida:\n")
         for item in datos:
             reglas += f"- {item['nombre']} ({item['porcion']}): {item['calorias']} kcal, {item['proteina_g']}g proteina, {item['carbohidratos_g']}g carbohidratos, {item['grasas_g']}g grasas.\n"
         return reglas
@@ -196,19 +202,28 @@ def limpiar_decimales(datos_json):
             datos_json[macro] = int(round(float(datos_json[macro])))
     return datos_json
 
+def _normalizar(texto):
+    sin_acentos = unicodedata.normalize('NFD', texto.lower())
+    sin_acentos = ''.join(c for c in sin_acentos if unicodedata.category(c) != 'Mn')
+    return ' '.join(sin_acentos.split())
+
 def buscar_en_base_local(texto):
+    """Atajo sin IA: solo si el mensaje es ÚNICAMENTE un alimento guardado, con una cantidad de
+    porciones opcional ("granola", "2 granola", "2x huevos"). Cualquier otra cosa (varios alimentos,
+    gramos, frases) se manda a Gemini, que recibe la tabla como referencia."""
     try:
         respuesta = supabase.table('alimentos_frecuentes').select('*').execute()
         datos = respuesta.data
         if not datos: return None
-        texto_lower = texto.lower().strip()
+        match = re.match(r'^(?:(\d+(?:[.,]\d+)?)\s*x?\s+)?(\D.*)$', _normalizar(texto))
+        if not match: return None
+        multiplicador = float(match.group(1).replace(',', '.')) if match.group(1) else 1
+        nombre_pedido = match.group(2)
         for item in datos:
-            nombre_lower = item['nombre'].lower()
-            if nombre_lower in texto_lower or texto_lower in nombre_lower:
-                match = re.match(r'^(\d+\.?\d*)\s+', texto_lower)
-                multiplicador = float(match.group(1)) if match else 1
+            nombre = _normalizar(item['nombre'])
+            if nombre_pedido in (nombre, nombre + 's', nombre + 'es'):
                 return {
-                    'comida': item['nombre'] if multiplicador == 1 else f"{int(multiplicador)}x {item['nombre']}",
+                    'comida': item['nombre'] if multiplicador == 1 else f"{multiplicador:g}x {item['nombre']}",
                     'calorias': int(item['calorias'] * multiplicador),
                     'proteina_g': int(item['proteina_g'] * multiplicador),
                     'carbohidratos_g': int(item['carbohidratos_g'] * multiplicador),
