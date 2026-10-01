@@ -1,0 +1,16 @@
+{
+  "123456789": {
+    "nombre": "Alice",
+    "META_CALORIAS": 2300,
+    "META_PROTEINAS": 185,
+    "META_GRASAS": 75,
+    "META_CARBOHIDRATOS": 220
+  },
+  "987654321": {
+    "nombre": "Bob",
+    "META_CALORIAS": 1680,
+    "META_PROTEINAS": 125,
+    "META_GRASAS": 55,
+    "META_CARBOHIDRATOS": 170
+  }
+}
