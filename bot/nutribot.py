@@ -1,7 +1,7 @@
 import os
 import telebot
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 from supabase import create_client
 import requests
 from PIL import Image
@@ -29,7 +29,7 @@ DASHBOARD_URL = os.getenv('DASHBOARD_URL')  # optional: public URL of the web da
 
 # --- 2. Inicialización ---
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-genai.configure(api_key=GEMINI_API_KEY)
+gemini = genai.Client(api_key=GEMINI_API_KEY)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 MODELOS_FALLBACK = [
     'gemini-3.8-flash',       # 1° Más nuevo y preciso (5 RPM, 20 RPD)
@@ -38,7 +38,6 @@ MODELOS_FALLBACK = [
     'gemini-3.5-flash-lite',  # 4° Rápido con MUCHA cuota (15 RPM, 500 RPD)
     'gemini-3.1-flash-lite',  # 5° Último recurso, cuota enorme (15 RPM, 500 RPD)
 ]
-modelos = [genai.GenerativeModel(nombre) for nombre in MODELOS_FALLBACK]
 
 # --- MULTI-USER SETTINGS AND MEMORY ---
 # Allowed Telegram users and their nutrition goals live in users.json (git-ignored).
@@ -75,15 +74,15 @@ def iniciar_memoria_usuario(user_id):
 
 def es_error_limite(error):
     error_str = str(error).lower()
-    return any(palabra in error_str for palabra in ['rate limit', 'quota', 'resource exhausted', '429', 'too many requests', 'overloaded'])
+    return any(palabra in error_str for palabra in ['rate limit', 'quota', 'resource exhausted', '429', 'too many requests', 'overloaded', '503', 'unavailable', 'high demand'])
 
 def llamar_gemini(prompt_o_contenido, intentos_por_modelo=2, espera_base=2):
     ultimo_error = None
-    for i, modelo in enumerate(modelos):
+    for nombre_modelo in MODELOS_FALLBACK:
         espera = espera_base
         for intento in range(1, intentos_por_modelo + 1):
             try:
-                return modelo.generate_content(prompt_o_contenido).text
+                return gemini.models.generate_content(model=nombre_modelo, contents=prompt_o_contenido).text
             except Exception as e:
                 ultimo_error = e
                 if es_error_limite(e):
@@ -433,8 +432,7 @@ def extraer_dias_consulta(texto):
     Devolve SOLO un número entero. Si no menciona tiempo, devolve 7. Máximo 180. 
     Ejemplos: 'último mes' -> 30, 'hace 3 semanas' -> 21, '¿cómo vengo?' -> 7."""
     try:
-        modelo_rapido = genai.GenerativeModel('gemini-3.1-flash-lite')
-        resp = modelo_rapido.generate_content(prompt)
+        resp = gemini.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
         match = re.search(r'\d+', resp.text)
         return min(max(int(match.group()), 1), 180) if match else 7
     except:

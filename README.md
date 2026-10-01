@@ -111,7 +111,6 @@ Needs Node.js only, no dependencies. The suite runs the dashboard in a small DOM
 ## Known limitations and roadmap
 
 - **Tests:** the suite covers the dashboard only (110 tests, all passing, also when the clock is faked to each hour of the day and in two time zones). The Python bot has no automated tests yet.
-- `google-generativeai` is deprecated upstream. Migrating to `google-genai` is next.
 - The VM runs Python 3.9, which Google libraries now flag as end-of-life. Upgrade to 3.10+.
 - Deployment is manual (upload file, restart in `tmux`). A `git pull` or CI-based deploy would be better.
 - The bot and dashboard text is in Spanish. Internationalization is not done.
@@ -120,7 +119,7 @@ Needs Node.js only, no dependencies. The suite runs the dashboard in a small DOM
 
 ## Tech stack
 
-Python · pyTelegramBotAPI · Google Gemini · Supabase (Postgres) · HTML, Tailwind CSS, Chart.js · Netlify · Google Compute Engine · Node.js (tests)
+Python · pyTelegramBotAPI · Google Gemini (google-genai SDK) · Supabase (Postgres) · HTML, Tailwind CSS, Chart.js · Netlify · Google Compute Engine · Node.js (tests)
 
 ## License
 
