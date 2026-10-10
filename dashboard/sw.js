@@ -1,5 +1,5 @@
-// NutriNacho Service Worker v1.0
-const CACHE_NAME = 'nutrinacho-v2';
+// NutriNacho Service Worker
+const CACHE_NAME = 'nutrinacho-v3';
 const API_CACHE = 'nutrinacho-api-v1';
 
 // App shell resources to cache on install
@@ -9,7 +9,6 @@ const SHELL_ASSETS = [
     '/manifest.json',
     'https://cdn.tailwindcss.com',
     'https://cdn.jsdelivr.net/npm/chart.js@4',
-    'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3',
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 ];
@@ -17,17 +16,10 @@ const SHELL_ASSETS = [
 // Install: cache app shell
 self.addEventListener('install', event => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] Caching app shell');
-            return cache.addAll(SHELL_ASSETS).catch(err => {
-                // If some CDN resources fail, don't block install
-                console.warn('[SW] Some shell assets failed to cache:', err);
-                // Cache what we can individually
-                return Promise.allSettled(
-                    SHELL_ASSETS.map(url => cache.add(url).catch(() => console.warn('[SW] Failed:', url)))
-                );
-            });
-        })
+        // Cache each asset on its own so one failing CDN doesn't block install
+        caches.open(CACHE_NAME).then(cache =>
+            Promise.allSettled(SHELL_ASSETS.map(url => cache.add(url)))
+        )
     );
     self.skipWaiting();
 });
@@ -87,7 +79,7 @@ self.addEventListener('fetch', event => {
 
     // Strategy for navigations & index.html: Network-first, cache fallback
     // This ensures users always get the latest HTML after a new SW activates.
-    if (event.request.mode === 'navigate' || url.pathname === '/index.html' || url.pathname.endsWith('/index.html') || url.pathname === '/') {
+    if (event.request.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/') {
         event.respondWith(
             fetch(event.request).then(response => {
                 if (response.ok) {

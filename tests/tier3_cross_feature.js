@@ -167,8 +167,7 @@ const tier3Tests = [
             if (env.sandbox.loadAll) await env.sandbox.loadAll();
 
             const chartCal = env.chartMock.findChartByCanvasId('chartCal');
-            const goalLineVal = chartCal.options?.plugins?.annotation?.annotations?.goalLine?.yMin ??
-                               chartCal.options?.plugins?.annotation?.annotations?.goalLine?.value;
+            const goalLineVal = chartCal.data.datasets[2].data[0];
             assert.strictEqual(
                 Number(goalLineVal),
                 METAS_FIXTURES.nachoActive.calorias,

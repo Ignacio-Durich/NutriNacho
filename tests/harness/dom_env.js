@@ -353,17 +353,25 @@ class DOMDocument {
  */
 function parseHTMLIntoDocument(html) {
     const doc = new DOMDocument();
-    
-    // Tag regex capturing tags with attributes
-    const tagRegex = /<([a-zA-Z0-9\-]+)([^>]*)>/g;
+    const VOID = new Set(['meta', 'link', 'input', 'img', 'br', 'hr', 'source', 'area', 'base', 'col', 'embed', 'track', 'wbr']);
+    const body = html.replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '');
+
+    // Build the element tree: opening tags nest under the current parent, closing tags pop it
+    const tagRegex = /<(\/?)([a-zA-Z0-9\-]+)([^>]*)>/g;
+    const stack = [];
     let match;
-    
-    // Extract elements and register IDs / classes
-    while ((match = tagRegex.exec(html)) !== null) {
-        const tagName = match[1].toLowerCase();
-        if (tagName === 'script' || tagName === 'style' || tagName === 'meta' || tagName === 'link') continue;
-        
-        const attrStr = match[2];
+    while ((match = tagRegex.exec(body)) !== null) {
+        const tagName = match[2].toLowerCase();
+        if (match[1]) {
+            const idx = stack.map(e => e.tagName).lastIndexOf(tagName.toUpperCase());
+            if (idx !== -1) stack.length = idx;
+            continue;
+        }
+        if (tagName === 'meta' || tagName === 'link' || tagName === 'html' || tagName === 'head' || tagName === 'body') continue;
+
+        const attrStr = match[3];
         const attributes = {};
         
         const attrRegex = /([a-zA-Z0-9\-:@]+)(?:=(?:'([^']*)'|"([^"]*)"|([^>\s]+)))?/g;
@@ -378,6 +386,8 @@ function parseHTMLIntoDocument(html) {
 
         const el = new DOMElement(tagName, attributes);
         doc.registerElement(el);
+        if (stack.length) stack[stack.length - 1].appendChild(el);
+        if (!VOID.has(tagName) && !attrStr.trim().endsWith('/')) stack.push(el);
     }
 
     return doc;
@@ -449,7 +459,7 @@ function createNutriNachoEnvironment(options = {}) {
             (windowListeners[type] || []).forEach(fn => fn(event));
         },
         URL: urlMock,
-        Blob: typeof Blob !== 'undefined' ? Blob : class MockBlob {
+        Blob: class MockBlob {
             constructor(parts, opts = {}) {
                 this.parts = parts;
                 this.type = opts.type || '';
@@ -457,6 +467,9 @@ function createNutriNachoEnvironment(options = {}) {
             }
             async text() {
                 return this.parts.join('');
+            }
+            async arrayBuffer() {
+                return new TextEncoder().encode(this.parts.join('')).buffer;
             }
         }
     };
@@ -544,6 +557,9 @@ function createNutriNachoEnvironment(options = {}) {
         },
         runScript() {
             vm.runInContext(scriptCode, sandbox);
+            for (const el of document.allElements) {
+                if (el.attributes.onclick) el.onclick = () => vm.runInContext(el.attributes.onclick, sandbox);
+            }
             return sandbox;
         },
         getGlobal(name) {

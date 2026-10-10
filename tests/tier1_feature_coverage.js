@@ -115,7 +115,7 @@ const tier1Tests = [
     {
         id: 'T1-R1-04',
         feature: 'R1',
-        description: 'R1: Updates Chart.js goalLine annotations with active dynamic goals',
+        description: 'R1: Updates the Chart.js goal line with active dynamic goals',
         run: async () => {
             const env = createNutriNachoEnvironment({
                 silent: true,
@@ -129,9 +129,9 @@ const tier1Tests = [
 
             const chartCal = env.chartMock.findChartByCanvasId('chartCal');
             assert(chartCal, 'Chart #chartCal must be instantiated');
-            const annotations = chartCal.options?.plugins?.annotation?.annotations;
-            assert(annotations?.goalLine, 'Chart must have a goalLine annotation');
-            const goalLineVal = annotations.goalLine.yMin ?? annotations.goalLine.value;
+            const goalLine = chartCal.data.datasets[2];
+            assert(goalLine, 'Chart must have a goal line dataset');
+            const goalLineVal = goalLine.data[0];
             assert.strictEqual(
                 Number(goalLineVal),
                 METAS_FIXTURES.nachoActive.calorias,
@@ -463,7 +463,7 @@ const tier1Tests = [
     {
         id: 'T1-R4-03',
         feature: 'R4',
-        description: 'R4: Missing days feature a warning indicator (⚠️ label or annotation)',
+        description: 'R4: Missing days feature a warning indicator (⚠️ label)',
         run: async () => {
             const meals = createNachoPerfectDay(0);
             const env = createNutriNachoEnvironment({ silent: true, supabase: { comidas: meals } });
@@ -474,13 +474,9 @@ const tier1Tests = [
             assert(chartCal, 'Chart chartCal must exist');
 
             const labels = chartCal.data.labels || [];
-            const annotations = chartCal.options?.plugins?.annotation?.annotations || {};
-            const hasWarningInLabel = labels.some(l => String(l).includes('⚠️'));
-            const hasWarningInAnnotation = Object.values(annotations).some(a => String(a.content).includes('⚠️') || String(a.label?.content).includes('⚠️'));
-
             assert(
-                hasWarningInLabel || hasWarningInAnnotation,
-                'Expected ⚠️ warning indicator in chart labels or annotations for unlogged days'
+                labels.some(l => String(l).includes('⚠️')),
+                'Expected ⚠️ warning indicator in chart labels for unlogged days'
             );
         }
     },
