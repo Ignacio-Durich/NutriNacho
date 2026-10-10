@@ -49,7 +49,7 @@ flowchart LR
     D -.->|optional AI analysis| G
 ```
 
-- **Bot:** a single Python file, [`bot/nutribot.py`](bot/nutribot.py), running under `tmux` on a Google Cloud VM. It uses a server-side Supabase secret key.
+- **Bot:** a single Python file, [`bot/nutribot.py`](bot/nutribot.py), running as a `systemd` service on a Google Cloud VM, so it restarts on crashes and reboots. It uses a server-side Supabase secret key.
 - **Dashboard:** a static page ([`dashboard/`](dashboard)) with no build step, hosted on Netlify. It only reads data.
 - **Database:** three tables, `comidas` (meals), `metas` (goal history) and `alimentos_frecuentes` (saved foods).
 - **Days end at 04:00 UTC** (UTC-4), so late-night meals count toward the day they belong to. The bot and the dashboard share this rule.
@@ -86,6 +86,8 @@ python bot/nutribot.py
 
 `bot/users.json` is the allow-list: only the Telegram IDs listed there can use the bot. To find your ID, message [@userinfobot](https://t.me/userinfobot).
 
+To keep it running on a Linux server, copy `bot/` to `~/nutrinacho_bot` with a virtualenv in `env/`, then install the service in [`bot/nutribot.service`](bot/nutribot.service) (the install commands are at the top of the file). It restarts the bot if it crashes and starts it after a reboot. Logs: `journalctl -u nutribot -f`.
+
 ### 3. Dashboard
 
 ```bash
@@ -113,8 +115,7 @@ Needs Node.js only, no dependencies. The suite runs the dashboard in a small DOM
 ## Known limitations and roadmap
 
 - **Tests:** 110 dashboard tests (`node tests/e2e_runner.js`) and 77 bot tests (`pytest`, offline, no keys needed). GitHub Actions runs both, plus a scan for committed secrets, on every push and pull request.
-- The VM runs Python 3.9, which Google libraries now flag as end-of-life. Upgrade to 3.10+.
-- Deployment is manual (upload file, restart in `tmux`). A `git pull` or CI-based deploy would be better (CI currently only runs the tests).
+- Deployment is manual (upload the file, `sudo systemctl restart nutribot`). A `git pull` or CI-based deploy would be better (CI currently only runs the tests).
 - The bot and dashboard text is in Spanish. Internationalization is not done.
 - No authentication on the dashboard (see above).
 - Calorie and macro values are model estimates, not nutritional advice.
