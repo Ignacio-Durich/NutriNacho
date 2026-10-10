@@ -1,0 +1,20 @@
+# systemd unit for running the bot 24/7 on a Linux server.
+# Install (replaces YOUR_USER with the current user):
+#   sed "s/YOUR_USER/$USER/g" nutribot.service | sudo tee /etc/systemd/system/nutribot.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now nutribot
+# Logs: journalctl -u nutribot -f
+
+[Unit]
+Description=NutriNacho Telegram bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/nutrinacho_bot
+ExecStart=/home/YOUR_USER/nutrinacho_bot/env/bin/python -u nutribot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
