@@ -2,10 +2,8 @@ import os
 import telebot
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from supabase import create_client
-import requests
-from PIL import Image
-import io
 import json
 import time
 import re
@@ -53,8 +51,16 @@ except FileNotFoundError:
 # Diccionario para guardar el estado de cada usuario por separado
 memoria_usuarios = {}
 estado_metas = {} # Para el asistente guiado de metas
+MACROS = ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']
 
 # --- 3. Funciones Auxiliares ---
+def hoy_logico():
+    return (datetime.now(timezone.utc) - timedelta(hours=4)).strftime('%Y-%m-%d')
+
+def fecha_logica(fecha_str):
+    # El día "lógico" corta a las 4 AM UTC (medianoche en UTC-4)
+    return datetime.fromisoformat(fecha_str.split('.')[0].replace('Z', '')) - timedelta(hours=4)
+
 def obtener_meta_actual(user_id):
     try:
         # Busca la ultima meta de ESTE usuario en Supabase
@@ -68,10 +74,6 @@ def obtener_meta_actual(user_id):
         u = USUARIOS_PERMITIDOS[user_id]
         return {'id': None, 'calorias': u['META_CALORIAS'], 'proteina_g': u['META_PROTEINAS'], 'carbohidratos_g': u['META_CARBOHIDRATOS'], 'grasas_g': u['META_GRASAS']}
     return None
-
-def iniciar_memoria_usuario(user_id):
-    if user_id not in memoria_usuarios:
-        memoria_usuarios[user_id] = {"ultimo_registro_id": None, "ultimo_registro_datos": None}
 
 def es_error_limite(error):
     error_str = str(error).lower()
@@ -141,7 +143,7 @@ def obtener_base_conocimiento():
         return ""
 
 def obtener_consumo_hoy(user_id):
-    hoy_logico = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime('%Y-%m-%d')
+    hoy = hoy_logico()
     try:
         # Filtramos en Supabase SOLO los platos de este usuario
         respuesta = supabase.table('comidas').select('*').eq('usuario_id', user_id).order('id', desc=True).limit(50).execute()
@@ -152,11 +154,7 @@ def obtener_consumo_hoy(user_id):
             fecha_str = item.get('fecha', '')
             if not fecha_str: continue
                 
-            fecha_limpia = fecha_str.split('.')[0].replace('Z', '')
-            fecha_utc = datetime.fromisoformat(fecha_limpia)
-            fecha_logica_item = (fecha_utc - timedelta(hours=4)).strftime('%Y-%m-%d')
-            
-            if fecha_logica_item == hoy_logico:
+            if fecha_logica(fecha_str).strftime('%Y-%m-%d') == hoy:
                 cal_hoy += item.get('calorias', 0)
                 prot_hoy += item.get('proteina_g', 0)
                 carb_hoy += item.get('carbohidratos_g', 0)
@@ -197,7 +195,7 @@ def enviar_resumen(message, comida_nombre, cal, prot, carb, grasas, es_correccio
     bot.reply_to(message, msg, reply_markup=markup)
 
 def limpiar_decimales(datos_json):
-    for macro in ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']:
+    for macro in MACROS:
         if macro in datos_json:
             datos_json[macro] = int(round(float(datos_json[macro])))
     return datos_json
@@ -235,30 +233,21 @@ def buscar_en_base_local(texto):
 def corregir_sin_ia(texto, datos_originales):
     texto_lower = texto.lower().strip()
     datos = dict(datos_originales)
-    
-    if 'mitad' in texto_lower:
-        for macro in ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']:
-            if macro in datos: datos[macro] = int(datos[macro] / 2)
+
+    def escalar(factor):
+        for macro in MACROS:
+            if macro in datos: datos[macro] = int(datos[macro] * factor)
         return datos
-    if 'doble' in texto_lower:
-        for macro in ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']:
-            if macro in datos: datos[macro] = int(datos[macro] * 2)
-        return datos
-    if 'tercio' in texto_lower:
-        for macro in ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']:
-            if macro in datos: datos[macro] = int(datos[macro] / 3)
-        return datos
-    
+
+    for palabra, factor in (('mitad', 1 / 2), ('doble', 2), ('tercio', 1 / 3)):
+        if palabra in texto_lower: return escalar(factor)
+
     match_cal = re.search(r'(\d+)\s*(kcal|calorias|calorías)', texto_lower)
     if match_cal: datos['calorias'] = int(match_cal.group(1)); return datos
     match_prot = re.search(r'(\d+)\s*g?\s*(de\s+)?(prote[ií]na|prot)', texto_lower)
     if match_prot: datos['proteina_g'] = int(match_prot.group(1)); return datos
     match_mult = re.search(r'(?:multiplicar\s+)?por\s+(\d+\.?\d*)', texto_lower)
-    if match_mult:
-        factor = float(match_mult.group(1))
-        for macro in ['calorias', 'proteina_g', 'carbohidratos_g', 'grasas_g']:
-            if macro in datos: datos[macro] = int(datos[macro] * factor)
-        return datos
+    if match_mult: return escalar(float(match_mult.group(1)))
     return None
 
 def parsear_json_gemini(respuesta_texto):
@@ -272,6 +261,22 @@ def parsear_json_gemini(respuesta_texto):
             return json.loads(texto[inicio:fin + 1])
         raise ValueError(f"Gemini no devolvió un JSON válido: {texto[:100]}")
 
+def guardar_comida(message, datos, hoy):
+    user_id = message.from_user.id
+    datos = limpiar_decimales(datos)
+    fecha_asignada = datos.pop('fecha_logica', hoy)
+    datos['fecha'] = f"{fecha_asignada} 12:00:00+00:00"
+    datos['usuario_id'] = user_id # Vinculamos el plato al usuario
+
+    meta_actual = obtener_meta_actual(user_id)
+    if meta_actual['id']: datos['meta_id'] = meta_actual['id']
+
+    respuesta = supabase.table('comidas').insert(datos).execute()
+    memoria_usuarios[user_id]['ultimo_registro_id'] = respuesta.data[0]['id']
+    memoria_usuarios[user_id]['ultimo_registro_datos'] = datos
+
+    enviar_resumen(message, datos['comida'], datos['calorias'], datos['proteina_g'], datos['carbohidratos_g'], datos['grasas_g'])
+
 # --- 4. Handler 1: Ingreso de Fotos ---
 @bot.message_handler(content_types=['photo'])
 def procesar_foto(message):
@@ -280,20 +285,20 @@ def procesar_foto(message):
         bot.reply_to(message, "⛔ Acceso denegado. Este bot es privado.")
         return
 
-    iniciar_memoria_usuario(user_id)
+    memoria_usuarios.setdefault(user_id, {"ultimo_registro_id": None, "ultimo_registro_datos": None})
     bot.reply_to(message, f"Hola {USUARIOS_PERMITIDOS[user_id]['nombre']}, analizando tu comida y fecha... ⏳")
     
     try:
         descripcion = message.caption if message.caption else ""
         file_info = bot.get_file(message.photo[-1].file_id)
-        img = Image.open(io.BytesIO(requests.get(f'https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}').content))
-        
-        hoy_logico = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime('%Y-%m-%d')
+        img = types.Part.from_bytes(data=bot.download_file(file_info.file_path), mime_type='image/jpeg')
+
+        hoy = hoy_logico()
         base_dinamica = obtener_base_conocimiento()
         
         prompt = f"""
         Sos un nutricionista. Analizá la imagen considerando esta nota: "{descripcion}".
-        FECHA ACTUAL: {hoy_logico}. Si la nota indica explícitamente que la comida es de ayer o de un día anterior, calculá esa fecha. Si no dice nada, usá la FECHA ACTUAL.
+        FECHA ACTUAL: {hoy}. Si la nota indica explícitamente que la comida es de ayer o de un día anterior, calculá esa fecha. Si no dice nada, usá la FECHA ACTUAL.
         
         {base_dinamica}
         
@@ -301,22 +306,7 @@ def procesar_foto(message):
         {{"comida": "nombre", "calorias": 0, "proteina_g": 0, "carbohidratos_g": 0, "grasas_g": 0, "fecha_logica": "YYYY-MM-DD"}}
         """
         
-        datos = parsear_json_gemini(llamar_gemini([prompt, img]))
-        datos = limpiar_decimales(datos)
-        
-        fecha_asignada = datos.pop('fecha_logica', hoy_logico)
-        datos['fecha'] = f"{fecha_asignada} 12:00:00+00:00"
-        datos['usuario_id'] = user_id # Vinculamos el plato al usuario
-        
-        meta_actual = obtener_meta_actual(user_id)
-        if meta_actual['id']: datos['meta_id'] = meta_actual['id']
-        
-        respuesta = supabase.table('comidas').insert(datos).execute()
-        memoria_usuarios[user_id]['ultimo_registro_id'] = respuesta.data[0]['id']
-        memoria_usuarios[user_id]['ultimo_registro_datos'] = datos
-        
-        enviar_resumen(message, datos['comida'], datos['calorias'], datos['proteina_g'], datos['carbohidratos_g'], datos['grasas_g'])
-        
+        guardar_comida(message, parsear_json_gemini(llamar_gemini([prompt, img])), hoy)
     except Exception as e:
         bot.reply_to(message, f"Error en la foto: {e}")
 
@@ -328,7 +318,7 @@ def procesar_texto(message):
         bot.reply_to(message, "⛔ Acceso denegado. Este bot es privado.")
         return
 
-    iniciar_memoria_usuario(user_id)
+    memoria_usuarios.setdefault(user_id, {"ultimo_registro_id": None, "ultimo_registro_datos": None})
     es_correccion = any(palabra in message.text.lower() for palabra in ['corregir', 'cambiar', 'mitad', 'agregar', 'era', 'en realidad'])
 
     if es_correccion:
@@ -361,7 +351,7 @@ def procesar_texto(message):
             
     else:
         try:
-            hoy_logico = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime('%Y-%m-%d')
+            hoy = hoy_logico()
             datos_local = buscar_en_base_local(message.text)
             
             if datos_local:
@@ -373,26 +363,13 @@ def procesar_texto(message):
 
                 prompt = f"""
                 Sos un nutricionista. Analizá esta comida ingresada por texto: "{message.text}".
-                FECHA ACTUAL: {hoy_logico}. Si el texto indica explícitamente que la comida es de ayer o de un día anterior, calculá esa fecha. Si no dice nada, usá la FECHA ACTUAL.
+                FECHA ACTUAL: {hoy}. Si el texto indica explícitamente que la comida es de ayer o de un día anterior, calculá esa fecha. Si no dice nada, usá la FECHA ACTUAL.
                 {base_dinamica}
                 Devolvé SOLO un JSON válido:
                 {{"comida": "nombre", "calorias": 0, "proteina_g": 0, "carbohidratos_g": 0, "grasas_g": 0, "fecha_logica": "YYYY-MM-DD"}}
                 """
                 datos = parsear_json_gemini(llamar_gemini(prompt))
-            
-            datos = limpiar_decimales(datos)
-            fecha_asignada = datos.pop('fecha_logica', hoy_logico)
-            datos['fecha'] = f"{fecha_asignada} 12:00:00+00:00"
-            datos['usuario_id'] = user_id # Vinculamos el plato
-            
-            meta_actual = obtener_meta_actual(user_id)
-            if meta_actual['id']: datos['meta_id'] = meta_actual['id']
-            
-            respuesta = supabase.table('comidas').insert(datos).execute()
-            memoria_usuarios[user_id]['ultimo_registro_id'] = respuesta.data[0]['id']
-            memoria_usuarios[user_id]['ultimo_registro_datos'] = datos
-            
-            enviar_resumen(message, datos['comida'], datos['calorias'], datos['proteina_g'], datos['carbohidratos_g'], datos['grasas_g'])
+            guardar_comida(message, datos, hoy)
         except Exception as e:
             bot.reply_to(message, f"Error en el ingreso manual: {e}")
 
@@ -441,16 +418,7 @@ def manejar_botones(call):
         bot.edit_message_text("🚫 Cancelado.", call.message.chat.id, call.message.message_id)
     elif call.data == "mostrar_menu":
         nombre = USUARIOS_PERMITIDOS.get(user_id, {}).get('nombre', 'Usuario')
-        msg = (f"📋 *MENÚ DE {nombre.upper()}*\n\n"
-               "/menu — 📋 Ver este menú\n"
-           "/consulta — 🧑‍⚕️ Nutricionista Virtual\n"
-           "/metas — 🎯 Actualizar Metas Diarias\n"
-               "/stats — 📈 Estadísticas semanales\n"
-               "/alimentos — ⚙️ Gestionar base de conocimiento\n"
-               "/borrar — 🗑 Eliminar comidas\n"
-               "/dashboard — 📊 Dashboard web\n\n"
-               "💡 *Para registrar:* Mandá una foto o escribí el plato.")
-        bot.send_message(call.message.chat.id, msg, parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, texto_menu(nombre), parse_mode="Markdown")
 
 def guardar_nuevo_alimento(message):
     try:
@@ -466,16 +434,13 @@ def guardar_nuevo_alimento(message):
     except Exception as e:
         bot.reply_to(message, f"Error: {e}")
 
+DIAS_POR_UNIDAD = {'dia': 1, 'semana': 7, 'mes': 30}
+
 def extraer_dias_consulta(texto):
-    prompt = f"""Analiza esta consulta: '{texto}'. ¿Qué rango de tiempo en días está pidiendo analizar el usuario? 
-    Devolve SOLO un número entero. Si no menciona tiempo, devolve 7. Máximo 180. 
-    Ejemplos: 'último mes' -> 30, 'hace 3 semanas' -> 21, '¿cómo vengo?' -> 7."""
-    try:
-        resp = gemini.models.generate_content(model='gemini-3.1-flash-lite', contents=prompt)
-        match = re.search(r'\d+', resp.text)
-        return min(max(int(match.group()), 1), 180) if match else 7
-    except:
-        return 7
+    """Rango en días que pide la consulta ("últimos 10 días", "hace 3 semanas", "el último mes"). Sin IA: ahorra cuota."""
+    match = re.search(r'(?:(\d+)\s*)?\b(dia|semana|mes)(?:s|es)?\b', _normalizar(texto))
+    if not match: return 7
+    return min(max(int(match.group(1) or 1) * DIAS_POR_UNIDAD[match.group(2)], 1), 180)
 
 def obtener_consumo_historico(user_id, dias=7):
     fecha_limite = (datetime.now(timezone.utc) - timedelta(hours=4) - timedelta(days=dias)).strftime('%Y-%m-%d')
@@ -489,8 +454,7 @@ def obtener_consumo_historico(user_id, dias=7):
         for i in datos:
             if not i.get('fecha'): continue
             try:
-                f_log = (datetime.fromisoformat(i['fecha'].split('.')[0].replace('Z','+00:00')) - timedelta(hours=4)).strftime('%Y-%m-%d')
-                dias_set.add(f_log)
+                dias_set.add(fecha_logica(i['fecha']).strftime('%Y-%m-%d'))
                 c += i.get('calorias',0); p += i.get('proteina_g',0); ch += i.get('carbohidratos_g',0); g += i.get('grasas_g',0)
             except: pass
         d_count = max(1, len(dias_set))
@@ -549,7 +513,7 @@ def mostrar_pagina_borrar(chat_id, user_id, offset=0, message_id=None):
         texto = f"🗑 *BORRAR COMIDA*:\n\n"
         for i, item in enumerate(datos):
             try:
-                f_disp = (datetime.fromisoformat(item['fecha'].split('.')[0].replace('Z','')) - timedelta(hours=4)).strftime('%d/%m %H:%M')
+                f_disp = fecha_logica(item['fecha']).strftime('%d/%m %H:%M')
             except: f_disp = '??'
             texto += f"{i+1}. {item['comida']} ({item['calorias']} kcal) - {f_disp}\n"
             markup.add(InlineKeyboardButton(f"❌ {i+1}. {item['comida'][:20]}", callback_data=f"confirmar_borrar_{item['id']}"))
@@ -565,12 +529,8 @@ def mostrar_pagina_borrar(chat_id, user_id, offset=0, message_id=None):
     except Exception as e: bot.send_message(chat_id, f"Error: {e}")
 
 # --- 10. Menú ---
-@bot.message_handler(commands=['menu'])
-def mostrar_menu(message):
-    user_id = message.from_user.id
-    if user_id not in USUARIOS_PERMITIDOS: return
-    nombre = USUARIOS_PERMITIDOS[user_id]['nombre']
-    msg = (f"📋 *MENÚ DE {nombre.upper()}*\n\n"
+def texto_menu(nombre):
+    return (f"📋 *MENÚ DE {nombre.upper()}*\n\n"
            "/menu — 📋 Ver este menú\n"
            "/consulta — 🧑‍⚕️ Nutricionista Virtual\n"
            "/metas — 🎯 Actualizar Metas Diarias\n"
@@ -579,7 +539,12 @@ def mostrar_menu(message):
            "/borrar — 🗑 Eliminar comidas\n"
            "/dashboard — 📊 Dashboard web\n\n"
            "💡 *Para registrar:* Mandá una foto o escribí el plato.")
-    bot.reply_to(message, msg, parse_mode="Markdown")
+
+@bot.message_handler(commands=['menu'])
+def mostrar_menu(message):
+    user_id = message.from_user.id
+    if user_id not in USUARIOS_PERMITIDOS: return
+    bot.reply_to(message, texto_menu(USUARIOS_PERMITIDOS[user_id]['nombre']), parse_mode="Markdown")
 
 
 # --- 11. Consulta Nutricionista ---
@@ -637,55 +602,34 @@ def iniciar_carga_metas(message):
     user_id = message.from_user.id
     if user_id not in USUARIOS_PERMITIDOS: return
     estado_metas[user_id] = {}
-    msg = bot.reply_to(message, "🎯 Vamos a configurar tus nuevas metas.\n\n¿Cuántas **Calorías** diarias apuntás a comer? (Ej: 2300)", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, paso_calorias)
+    msg = bot.reply_to(message, "🎯 Vamos a configurar tus nuevas metas.\n\n" + PASOS_METAS[0][1], parse_mode="Markdown")
+    bot.register_next_step_handler(msg, paso_meta, 0)
 
-def paso_calorias(message):
+# (campo, pregunta, repregunta si no manda un número)
+PASOS_METAS = [
+    ('calorias', "¿Cuántas **Calorías** diarias apuntás a comer? (Ej: 2300)", "Ingresá solo números. ¿Cuántas **Calorías** diarias?"),
+    ('proteina_g', "Perfecto. ¿Cuántos gramos de **Proteína**? (Ej: 185)", "Solo números. ¿Cuántos gramos de **Proteína**?"),
+    ('carbohidratos_g', "Anotado. ¿Cuántos gramos de **Carbohidratos**? (Ej: 220)", "Solo números. ¿Cuántos gramos de **Carbohidratos**?"),
+    ('grasas_g', "Casi terminamos. ¿Cuántos gramos de **Grasas**? (Ej: 75)", "Solo números. ¿Cuántos gramos de **Grasas**?"),
+]
+
+def paso_meta(message, i):
     user_id = message.from_user.id
+    campo, _, repregunta = PASOS_METAS[i]
     try:
-        estado_metas[user_id]['calorias'] = int(message.text.strip())
-        msg = bot.reply_to(message, "Perfecto. ¿Cuántos gramos de **Proteína**? (Ej: 185)", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, paso_proteinas)
+        estado_metas[user_id][campo] = int(message.text.strip())
     except ValueError:
-        msg = bot.reply_to(message, "Ingresá solo números. ¿Cuántas **Calorías** diarias?")
-        bot.register_next_step_handler(msg, paso_calorias)
-
-def paso_proteinas(message):
-    user_id = message.from_user.id
+        msg = bot.reply_to(message, repregunta)
+        bot.register_next_step_handler(msg, paso_meta, i)
+        return
+    if i + 1 < len(PASOS_METAS):
+        msg = bot.reply_to(message, PASOS_METAS[i + 1][1], parse_mode="Markdown")
+        bot.register_next_step_handler(msg, paso_meta, i + 1)
+        return
     try:
-        estado_metas[user_id]['proteina_g'] = int(message.text.strip())
-        msg = bot.reply_to(message, "Anotado. ¿Cuántos gramos de **Carbohidratos**? (Ej: 220)", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, paso_carbos)
-    except ValueError:
-        msg = bot.reply_to(message, "Solo números. ¿Cuántos gramos de **Proteína**?")
-        bot.register_next_step_handler(msg, paso_proteinas)
-
-def paso_carbos(message):
-    user_id = message.from_user.id
-    try:
-        estado_metas[user_id]['carbohidratos_g'] = int(message.text.strip())
-        msg = bot.reply_to(message, "Casi terminamos. ¿Cuántos gramos de **Grasas**? (Ej: 75)", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, paso_grasas)
-    except ValueError:
-        msg = bot.reply_to(message, "Solo números. ¿Cuántos gramos de **Carbohidratos**?")
-        bot.register_next_step_handler(msg, paso_carbos)
-
-def paso_grasas(message):
-    user_id = message.from_user.id
-    try:
-        estado_metas[user_id]['grasas_g'] = int(message.text.strip())
-        nueva_meta = {
-            "usuario_id": user_id,
-            "calorias": estado_metas[user_id]['calorias'],
-            "proteina_g": estado_metas[user_id]['proteina_g'],
-            "carbohidratos_g": estado_metas[user_id]['carbohidratos_g'],
-            "grasas_g": estado_metas[user_id]['grasas_g']
-        }
+        nueva_meta = {"usuario_id": user_id, **estado_metas[user_id]}
         supabase.table('metas').insert(nueva_meta).execute()
         bot.reply_to(message, f"✅ ¡Nuevas metas guardadas exitosamente!\n\n🔥 Calorías: {nueva_meta['calorias']}\n🥩 Proteína: {nueva_meta['proteina_g']}g\n🍞 Carbos: {nueva_meta['carbohidratos_g']}g\n🥑 Grasas: {nueva_meta['grasas_g']}g")
-    except ValueError:
-        msg = bot.reply_to(message, "Solo números. ¿Cuántos gramos de **Grasas**?")
-        bot.register_next_step_handler(msg, paso_grasas)
     except Exception as e:
         bot.reply_to(message, f"Error al guardar la meta en la BD: {e}")
 

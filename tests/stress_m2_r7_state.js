@@ -705,28 +705,6 @@ const stressR7Tests = [
 ];
 
 module.exports = {
-    stressR7Tests,
-    parseRFC4180
+    stressR7Tests
 };
 
-if (require.main === module) {
-    (async () => {
-        console.log('Running ' + stressR7Tests.length + ' stress tests in tests/stress_m2_r7_state.js...\n');
-        let passed = 0;
-        let failed = 0;
-        for (const t of stressR7Tests) {
-            try {
-                await t.run();
-                console.log(`  ✓ [${t.id}] ${t.description}`);
-                passed++;
-            } catch (err) {
-                console.error(`  ✗ [${t.id}] ${t.description}\n    ${err.stack || err.message}`);
-                failed++;
-            }
-        }
-        console.log(`\n======================================================================`);
-        console.log(`Results: ${passed} passed, ${failed} failed out of ${stressR7Tests.length} tests`);
-        console.log(`======================================================================`);
-        if (failed > 0) process.exit(1);
-    })();
-}

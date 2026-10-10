@@ -114,7 +114,7 @@ Needs Node.js only, no dependencies. The suite runs the dashboard in a small DOM
 
 ## Known limitations and roadmap
 
-- **Tests:** 110 dashboard tests (`node tests/e2e_runner.js`) and 77 bot tests (`pytest`, offline, no keys needed). GitHub Actions runs both, plus a scan for committed secrets, on every push and pull request.
+- **Tests:** 110 dashboard tests (`node tests/e2e_runner.js`) and 80 bot tests (`pytest`, offline, no keys needed). GitHub Actions runs both, plus a scan for committed secrets, on every push and pull request.
 - Deployment is manual (upload the file, `sudo systemctl restart nutribot`). A `git pull` or CI-based deploy would be better (CI currently only runs the tests).
 - The bot and dashboard text is in Spanish. Internationalization is not done.
 - No authentication on the dashboard (see above).

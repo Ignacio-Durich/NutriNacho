@@ -1,6 +1,6 @@
 /**
- * Chart.js v4 + chartjs-plugin-annotation v3 Mock
- * Captures chart configurations, dataset styling, annotations, and callbacks.
+ * Chart.js v4 Mock
+ * Captures chart configurations, dataset styling and callbacks.
  */
 
 function createChartMock() {
@@ -10,10 +10,9 @@ function createChartMock() {
         constructor(ctx, config) {
             this.ctx = ctx;
             this.config = JSON.parse(JSON.stringify(config || {}));
-            // Preserve non-JSON properties like callback functions
-            if (config && config.options && config.options.plugins && config.options.plugins.tooltip) {
-                this.tooltipCallbacks = config.options.plugins.tooltip.callbacks;
-            }
+            // JSON drops functions: put the tooltip callbacks back, like the real chart keeps them
+            const tooltip = config && config.options && config.options.plugins && config.options.plugins.tooltip;
+            if (tooltip) this.config.options.plugins.tooltip.callbacks = tooltip.callbacks;
             this.destroyed = false;
             this.updated = false;
             instances.push(this);
@@ -25,6 +24,10 @@ function createChartMock() {
 
         get options() {
             return this.config.options || {};
+        }
+
+        get tooltipCallbacks() {
+            return this.options.plugins && this.options.plugins.tooltip && this.options.plugins.tooltip.callbacks;
         }
 
         destroy() {

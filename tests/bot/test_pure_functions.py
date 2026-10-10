@@ -130,16 +130,21 @@ def test_meta_actual_unknown_user_returns_none(nb, sb):
     assert nb.obtener_meta_actual(999) is None
 
 
-# --- extraer_dias_consulta (uses Gemini) -----------------------------------------------
-@pytest.mark.parametrize("respuesta, dias", [("30", 30), ("Son 21 días", 21), ("0", 1), ("500", 180), ("sin número", 7)])
-def test_extraer_dias(nb, fake_gemini, respuesta, dias):
-    fake_gemini({"gemini-3.1-flash-lite": respuesta})
-    assert nb.extraer_dias_consulta("cómo vengo este último mes") == dias
-
-
-def test_extraer_dias_defaults_to_7_when_gemini_fails(nb, fake_gemini):
-    fake_gemini({"gemini-3.1-flash-lite": RuntimeError("boom")})
-    assert nb.extraer_dias_consulta("hola") == 7
+# --- extraer_dias_consulta (no Gemini) -------------------------------------------------
+@pytest.mark.parametrize("texto, dias", [
+    ("cómo vengo este último mes", 30),
+    ("y en los últimos 2 meses?", 60),
+    ("hace 3 semanas que no como bien", 21),
+    ("esta semana", 7),
+    ("los últimos 10 días", 10),
+    ("qué ceno hoy?", 7),
+    ("compré una mesa", 7),
+    ("últimos 400 días", 180),
+])
+def test_extraer_dias(nb, fake_gemini, texto, dias):
+    gemini = fake_gemini()
+    assert nb.extraer_dias_consulta(texto) == dias
+    assert gemini.calls == []
 
 
 # --- obtener_consumo_historico ---------------------------------------------------------

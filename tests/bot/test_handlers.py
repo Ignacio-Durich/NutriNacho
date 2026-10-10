@@ -53,3 +53,17 @@ def test_main_starts_polling_without_messaging_anyone(nb, bot):
     bot.infinity_polling.assert_called_once()
     bot.send_message.assert_not_called()
     bot.reply_to.assert_not_called()
+
+
+def test_metas_wizard_asks_each_macro_retries_non_numbers_and_saves(nb, bot, sb):
+    inserted = []
+    sb.set("metas", [])
+    sb.tables["metas"].insert = lambda row: inserted.append(row) or sb.tables["metas"]
+    nb.iniciar_carga_metas(message(NACHO, "/metas"))
+    for texto in ["2400", "mucho", "190", "230", "80"]:
+        paso, i = bot.register_next_step_handler.call_args.args[1:]
+        paso(message(NACHO, texto), i)
+    assert inserted == [{"usuario_id": NACHO, "calorias": 2400, "proteina_g": 190,
+                         "carbohidratos_g": 230, "grasas_g": 80}]
+    assert "Solo números" in bot.reply_to.call_args_list[2].args[1]
+    assert "guardadas" in bot.reply_to.call_args.args[1]
