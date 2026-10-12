@@ -1,6 +1,6 @@
-# NutriNacho
+# Nutrition Bot + Dashboard
 
-[![CI](https://github.com/Ignacio-Durich/NutriNacho/actions/workflows/ci.yml/badge.svg)](https://github.com/Ignacio-Durich/NutriNacho/actions/workflows/ci.yml)
+[![CI](https://github.com/Ignacio-Durich/nutrition-bot-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Ignacio-Durich/nutrition-bot-dashboard/actions/workflows/ci.yml)
 
 A private nutrition tracker I built for myself and my mom. Send a photo or a short description of a meal to a **Telegram bot**; **Gemini** estimates calories and macros, the result is stored in **Supabase**, and a **web dashboard** shows daily progress, trends and AI-written analysis.
 
@@ -73,8 +73,8 @@ Enable RLS on all three. The bot uses the secret key, which bypasses RLS. For th
 ### 2. Bot
 
 ```bash
-git clone https://github.com/Ignacio-Durich/NutriNacho.git
-cd NutriNacho
+git clone https://github.com/Ignacio-Durich/nutrition-bot-dashboard.git
+cd nutrition-bot-dashboard
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
